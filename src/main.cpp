@@ -55,37 +55,44 @@ std::string unique_path(const std::filesystem::path& directory, const std::files
 }
 
 void convert_file(const std::filesystem::path& file_path, const std::filesystem::path& output_path, const size_t index, const size_t total) {
-    je2be::lce::Options convert_options;
-    convert_options.fTempDirectory = mcfile::File::CreateTempDir(std::filesystem::temp_directory_path());
+    try {
+        je2be::lce::Options convert_options;
+        convert_options.fTempDirectory = mcfile::File::CreateTempDir(std::filesystem::temp_directory_path());
 
-    defer {
-        if (convert_options.fTempDirectory) {
-            je2be::Fs::DeleteAll(*convert_options.fTempDirectory);
+        defer {
+            if (convert_options.fTempDirectory) {
+                je2be::Fs::DeleteAll(*convert_options.fTempDirectory);
+            }
+        };
+
+        std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Converting "
+                   << file_path.filename() << L"..." << tc::reset << std::endl;
+
+        auto start_time = std::chrono::steady_clock::now();
+
+        auto st = je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+        if (auto err = st.error(); err) {
+            std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+            std::wstring wide_what = converter.from_bytes(err->fWhat);
+
+            std::wcout << tc::red << L"[Error] Conversion failed: " << wide_what << tc::reset << std::endl;
+            for (int i = err->fTrace.size() - 1; i >= 0; i--) {
+                std::wstring wide_file = converter.from_bytes(err->fTrace[i].fFile);
+                std::wstring wide_line = converter.from_bytes(err->fTrace[i].fLine);
+
+                std::wcout << tc::reset << L"  " << wide_file << L":" << wide_line << tc::reset << std::endl;
+            }
+        } else {
+            std::wcout << tc::green << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW
+                       << L" [Success] Conversion completed successfully! (" << duration_ms << "ms)" << tc::reset
+                       << std::endl;
         }
-    };
-
-    std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Converting " << file_path.filename() << L"..." << tc::reset << std::endl;
-
-    auto start_time = std::chrono::steady_clock::now();
-
-    auto st = je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
-
-    auto end_time = std::chrono::steady_clock::now();
-    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-    if (auto err = st.error(); err) {
-        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-        std::wstring wide_what = converter.from_bytes(err->fWhat);
-
-        std::wcout << tc::red << L"[Error] Conversion failed: " << wide_what << tc::reset << std::endl;
-        for (int i = err->fTrace.size() - 1; i >= 0; i--) {
-            std::wstring wide_file = converter.from_bytes(err->fTrace[i].fFile);
-            std::wstring wide_line = converter.from_bytes(err->fTrace[i].fLine);
-
-            std::wcout << tc::reset << L"  " << wide_file << L":" << wide_line << tc::reset << std::endl;
-        }
-    } else {
-        std::wcout << tc::green << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << L" [Success] Conversion completed successfully! (" << duration_ms << "ms)"  << tc::reset << std::endl;
+    } catch (const std::exception& e) {
+        std::wcout << tc::red << L"[Error] An exception has occurred while converting item: " << e.what() << tc::reset << std::endl;
     }
 }
 

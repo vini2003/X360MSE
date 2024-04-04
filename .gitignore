@@ -1,0 +1,73 @@
+# Standard gitignore for C++
+*.o
+*.out
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.pdb
+*.idb
+*.obj
+*.manifest
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.ds_store
+*.cache
+*.csproj
+*.suo
+*.sdf
+*.pidb
+.ipch/
+*.tlog
+*.log
+*.vs/
+*.vscode/
+
+# Build folders
+cmake-build-debug/
+cmake-build-release/
+
+# Submodule directories
+je2be-core/
+bit7z/
+
+# Ignore all submodules git directories
+[submodule "*/"]
+	ignore = all
+
+# Dependency directories
+deps/
+vendor/
+
+# Binaries and executables
+bin/
+*.exe
+*.dll
+
+# Ignore specific files that might be in the project
+*.user
+*.swo
+*.swp
+*.bak
+*.orig
+*.pre
+
+# System-specific ignore
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Ignore IDE specific files
+.idea/
+*.iml
+*.iws
+.vscode/
+*.code-workspace

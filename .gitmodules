@@ -1,0 +1,6 @@
+[submodule "je2be-core"]
+	path = je2be-core
+	url = https://github.com/kbinani/je2be-core
+[submodule "bit7z"]
+	path = bit7z
+	url = https://github.com/rikyoz/bit7z

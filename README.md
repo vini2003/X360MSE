@@ -33,7 +33,4 @@ A huge thanks also goes to the [7-zip](https://www.7-zip.org/) project, whose `7
 
 The project should compile out of the box using CMake. However, there are issues with the provided project's `CMakeList.txt`s and with MSVC itself, which require minor tweaks to get this project to compile.
 
-1. Replace `__cplusplus` with `_MSVC_LANG` if using MSVC for compiling (which you should, on Windows).
-   2. See [this issue](https://developercommunity.visualstudio.com/t/msvc-incorrectly-defines-cplusplus/139261) for more details on the problem - yes, it persists from **2017**.
-2. Use a Release build, otherwise you need to change the copy script in `je2be-core/CMakeLists.txt` to copy `mimalloc-debug` rather than `mimalloc`.
-3. Remove `examples` from `pbar`, including in `CMakeLists.txt`.
+1. Use a Release build, otherwise you need to change the copy script in `je2be-core/CMakeLists.txt` to copy `mimalloc-debug` rather than `mimalloc`.

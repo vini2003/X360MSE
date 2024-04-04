@@ -15,6 +15,8 @@ else()
 endif()
 
 # Include pbar.
+# Disable pbar examples.
+set(PBAR_INCLUDE_EXAMPLES OFF)
 add_subdirectory("pbar")
 
 # Include je2be-core.

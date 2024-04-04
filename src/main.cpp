@@ -65,8 +65,7 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
             }
         };
 
-        std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Converting "
-                   << file_path.filename() << L"..." << tc::reset << std::endl;
+        std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Converting " << file_path.filename() << L"..." << tc::reset << std::endl;
 
         auto start_time = std::chrono::steady_clock::now();
 

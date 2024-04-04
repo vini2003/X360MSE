@@ -28,8 +28,7 @@
 *.vscode/
 
 # Build folders
-cmake-build-debug/
-cmake-build-release/
+cmake-*/
 
 # Ignore all submodules git directories
 [submodule "*/"]

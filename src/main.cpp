@@ -3,22 +3,27 @@
 #include <regex>
 #include <filesystem>
 #include <vector>
+#include <string>
+#include <locale>
+#include <codecvt>
 
-#include <bit7z/bit7zlibrary.hpp>
-#include <bit7z/bitarchivereader.hpp>
-#include <bit7z/bitextractor.hpp>
-#include <bit7z/bitfileextractor.hpp>
+#include "bit7z/bit7zlibrary.hpp"
+#include "bit7z/bitarchivereader.hpp"
+#include "bit7z/bitextractor.hpp"
+#include "bit7z/bitfileextractor.hpp"
 
 #include <cxxopts.hpp>
 
 #include <termcolor/termcolor.hpp>
 
+// If on Windows, this must be included for '_setmode'.
 #ifdef _WIN32
 #include <fcntl.h>
 #endif
 
 #include "unicode.hpp"
 
+// Shorten the namespaces for ease of use.
 namespace tc = termcolor;
 namespace uc = unicode;
 
@@ -42,7 +47,7 @@ std::string unique_path(const std::filesystem::path& directory, const std::files
     return path.string();
 }
 
-void process_file_or_folder(const std::filesystem::path& file_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& savePattern, size_t index, size_t total) {
+void process_file_or_folder(const std::filesystem::path& file_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& save_file_pattern, size_t index, size_t total) {
     using namespace bit7z;
 
     std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Processing " << file_path.filename() << L"..." << tc::reset << std::endl;
@@ -52,34 +57,46 @@ void process_file_or_folder(const std::filesystem::path& file_path, const std::f
     if (!std::filesystem::is_directory(file_path) && file_path.extension() != ".bin") {
         try {
             BitFileExtractor extractor{lib7z};
-            BitArchiveReader archiveReader{lib7z, file_path.wstring()};
+            BitArchiveReader archive_reader{lib7z, file_path.wstring()};
 
             was_archive = true;
 
-            for (const auto &item: archiveReader.items()) {
-                if (std::regex_match(item.name(), savePattern)) {
-                    auto start_time = std::chrono::steady_clock::now();
+            const auto items = archive_reader.items();
 
-                    std::filesystem::path output_path = unique_path(output_directory, item.name());
-                    std::ofstream outStream(output_path, std::ios::binary);
-                    extractor.extract(file_path.wstring(), outStream, item.index());
+            std::vector<int> item_indices;
 
-                    auto end_time = std::chrono::steady_clock::now();
-                    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-                    std::wcout << tc::white << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << L" [" << index << L" / " << total << L"]" << L" Extracted " << item.name() << L" to " << output_path << L"! (" << duration_ms << "ms)" << tc::reset << std::endl;
+            for (auto i = 0; i < items.size(); ++i) {
+                const auto& item = items.at(i);
+                if (std::regex_match(item.name(), save_file_pattern)) {
+                    item_indices.push_back(i);
                 }
             }
 
-        } catch (const std::exception& ex) {
+            size_t counter = 0;
+
+            for (const auto item_index : item_indices) {
+                const auto& item = items.at(item_index);
+
+                auto start_time = std::chrono::steady_clock::now();
+
+                std::filesystem::path output_path = unique_path(output_directory, item.name());
+                std::ofstream output_stream(output_path, std::ios::binary);
+                extractor.extract(file_path.wstring(), output_stream, item.index());
+
+                auto end_time = std::chrono::steady_clock::now();
+                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+                std::wcout << tc::white << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << L" [" << counter + 1 << L" / " << item_indices.size() + 1 << L"]" << L" Extracted " << item.name() << L" to " << output_path << L"! (" << duration_ms << "ms)" << tc::reset << std::endl;
+                counter += 1;
+            }
+        } catch (const std::exception& e) {
             std::wcout << tc::red << L"[Error] An exception has occurred while processing " << file_path << L":" << tc::reset << std::endl;
-            std::wcout << tc::red << ex.what() << std::endl << std::endl;
+            std::wcout << tc::red << e.what() << std::endl << std::endl;
         }
     }
 
     if (!was_archive) {
-        // For unzipped files matching the pattern directly in the input directory.
-        if (std::regex_match(file_path.filename().wstring(), savePattern)) {
+        if (std::regex_match(file_path.filename().wstring(), save_file_pattern)) {
             auto start_time = std::chrono::steady_clock::now();
 
             std::filesystem::path output_path = unique_path(output_directory, file_path.filename());
@@ -94,10 +111,11 @@ void process_file_or_folder(const std::filesystem::path& file_path, const std::f
 }
 
 int main(int argc, char* argv[]) {
+    // If on Windows, this must be executed to allow the output stream of std::wcout to receive UTF-16 characters.
 #ifdef _WIN32
     _setmode(_fileno(stdout), _O_U16TEXT);
 #endif
-    cxxopts::Options options("SaveExtractor", "Extract Xbox 360 Minecraft saves from a hard drive or compacted backup");
+    cxxopts::Options options("X360MSE", "Extract Xbox 360 Minecraft saves from a hard drive or compacted backup");
 
     options.add_options()
             ("i,input", "Input file or folder (can be HDD mounting point, eg. X:\\)", cxxopts::value<std::string>())
@@ -107,8 +125,12 @@ int main(int argc, char* argv[]) {
     auto result = options.parse(argc, argv);
 
     if (result.count("help") || !result.count("input") || !result.count("output")) {
-        std::cout << options.help() << std::endl;
-        return 0;
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+        std::wstring wide_help = converter.from_bytes(options.help());
+
+        std::wcout << wide_help << std::endl;
+
+        return EXIT_SUCCESS;
     }
 
     std::wcout << std::endl;
@@ -141,8 +163,9 @@ int main(int argc, char* argv[]) {
         } else if (std::filesystem::is_regular_file(input_path)) {
             files_to_process.push_back(input_path);
         } else {
-            std::wcout << tc::red << "[Error] Input path is not a file or directory." << tc::reset << std::endl;
-            return 1;
+            std::wcout << tc::red << "[Error] Input path is not a file or directory!" << tc::reset << std::endl;
+
+            return EXIT_FAILURE;
         }
 
         std::wcout << std::endl;
@@ -154,12 +177,15 @@ int main(int argc, char* argv[]) {
 
         for (const auto& file_path : files_to_process) {
             index += 1;
+
             process_file_or_folder(file_path, output_directory, lib7z, save_file_regex, index, total);
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
+        std::wcout << tc::red << L"[Error] An exception has occurred:" << tc::reset << std::endl;
+        std::wcout << tc::red << e.what() << tc::reset << std::endl;
+
+        return EXIT_FAILURE;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

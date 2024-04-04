@@ -1,4 +1,4 @@
-
+![X60MSE Logo](https://github.com/vini2003/X360MSE/blob/master/assets/logo.svg)
 
 # How to compile
 

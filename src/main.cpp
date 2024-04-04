@@ -21,7 +21,14 @@
 #include <fcntl.h>
 #endif
 
+#include <je2be.hpp>
+
+#include <defer.hpp>
+
+#include <pbar.hpp>
+
 #include "unicode.hpp"
+#include "../je2be-core/example/lce-progress.hpp"
 
 // Shorten the namespaces for ease of use.
 namespace tc = termcolor;
@@ -47,7 +54,42 @@ std::string unique_path(const std::filesystem::path& directory, const std::files
     return path.string();
 }
 
-void process_file_or_folder(const std::filesystem::path& file_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& save_file_pattern, size_t index, size_t total) {
+void convert_file(const std::filesystem::path& file_path, const std::filesystem::path& output_path, const size_t index, const size_t total) {
+    je2be::lce::Options convert_options;
+    convert_options.fTempDirectory = mcfile::File::CreateTempDir(std::filesystem::temp_directory_path());
+
+    defer {
+        if (convert_options.fTempDirectory) {
+            je2be::Fs::DeleteAll(*convert_options.fTempDirectory);
+        }
+    };
+
+    std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Converting " << file_path.filename() << L"..." << tc::reset << std::endl;
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    auto st = je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
+
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+    if (auto err = st.error(); err) {
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+        std::wstring wide_what = converter.from_bytes(err->fWhat);
+
+        std::wcout << tc::red << L"[Error] Conversion failed: " << wide_what << tc::reset << std::endl;
+        for (int i = err->fTrace.size() - 1; i >= 0; i--) {
+            std::wstring wide_file = converter.from_bytes(err->fTrace[i].fFile);
+            std::wstring wide_line = converter.from_bytes(err->fTrace[i].fLine);
+
+            std::wcout << tc::reset << L"  " << wide_file << L":" << wide_line << tc::reset << std::endl;
+        }
+    } else {
+        std::wcout << tc::green << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << L" [Success] Conversion completed successfully! (" << duration_ms << "ms)"  << tc::reset << std::endl;
+    }
+}
+
+void extract_file_or_folder(const std::filesystem::path& file_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& save_file_pattern, size_t index, size_t total) {
     using namespace bit7z;
 
     std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Processing " << file_path.filename() << L"..." << tc::reset << std::endl;
@@ -178,7 +220,27 @@ int main(int argc, char* argv[]) {
         for (const auto& file_path : files_to_process) {
             index += 1;
 
-            process_file_or_folder(file_path, output_directory, lib7z, save_file_regex, index, total);
+            extract_file_or_folder(file_path, output_directory, lib7z, save_file_regex, index, total);
+        }
+
+        std::vector<std::filesystem::path> save_file_paths;
+
+        for (const auto& entry : std::filesystem::directory_iterator(output_directory)) {
+            if (entry.path().extension() == ".bin") {
+                save_file_paths.push_back(entry.path());
+            }
+        }
+
+        size_t count = 0;
+
+        for (const auto& save_path : save_file_paths) {
+            auto save_output_path = output_directory / save_path.stem();
+
+            if (!std::filesystem::exists(save_output_path)) {
+                std::filesystem::create_directories(save_output_path);
+            }
+
+            convert_file(save_path, save_output_path, count++ + 1, save_file_paths.size());
         }
     } catch (const std::exception& e) {
         std::wcout << tc::red << L"[Error] An exception has occurred:" << tc::reset << std::endl;

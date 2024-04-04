@@ -14,6 +14,9 @@ else()
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -flto")
 endif()
 
+# Include pbar.
+add_subdirectory("pbar")
+
 # Include je2be-core.
 add_subdirectory("je2be-core")
 
@@ -44,6 +47,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE cxxopts::cxxopts)
 # Include termcolor.
 find_path(TERMCOLOR_INCLUDE_DIRS "termcolor/termcolor.hpp")
 target_include_directories(${PROJECT_NAME} PRIVATE ${TERMCOLOR_INCLUDE_DIRS})
+
+# Include pbar.
+target_include_directories(${PROJECT_NAME} PRIVATE ${pbar_SOURCE_DIR})
 
 # Copy '7z.dll' into the output directory.
 # You must supply '7z.dll' into 'dll/' yourself.

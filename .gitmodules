@@ -4,6 +4,3 @@
 [submodule "bit7z"]
 	path = bit7z
 	url = https://github.com/rikyoz/bit7z
-[submodule "pbar"]
-	path = pbar
-	url = https://github.com/estshorter/pbar.git

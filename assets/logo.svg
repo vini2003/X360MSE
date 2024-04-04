@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1339 367.17">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #737373;
+        font-family: ArialMT, Arial;
+      }
+
+      .cls-2 {
+        fill: #107c10;
+      }
+
+      .cls-2, .cls-3 {
+        font-family: Arial-BoldMT, Arial;
+        font-weight: 700;
+      }
+
+      .cls-4 {
+        font-size: 297.39px;
+      }
+
+      .cls-3 {
+        fill: #8bc332;
+        letter-spacing: 0em;
+      }
+    </style>
+  </defs>
+  <text class="cls-4" transform="translate(0 255.21)"><tspan class="cls-2" x="0" y="0">X</tspan><tspan class="cls-1" x="198.36" y="0">360</tspan><tspan class="cls-3" x="694.55" y="0">MSE</tspan></text>
+</svg>

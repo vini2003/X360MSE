@@ -27,6 +27,11 @@
 
 #include <pbar.hpp>
 
+#include <fmt/core.h>
+#include <fmt/xchar.h>
+#include <fmt/color.h>
+
+#include "util.h"
 #include "unicode.hpp"
 #include "../je2be-core/example/lce-progress.hpp"
 
@@ -54,7 +59,7 @@ std::string unique_path(const std::filesystem::path& directory, const std::files
     return path.string();
 }
 
-void convert_file(const std::filesystem::path& file_path, const std::filesystem::path& output_path, const size_t index, const size_t total) {
+void convert_file(const std::filesystem::path& file_path, const std::filesystem::path& output_path, const size_t file_index, const size_t file_total) {
     try {
         je2be::lce::Options convert_options;
         convert_options.fTempDirectory = mcfile::File::CreateTempDir(std::filesystem::temp_directory_path());
@@ -65,16 +70,18 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
             }
         };
 
-        std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Converting " << file_path.filename() << L"..." << tc::reset << std::endl;
+        fmt::println(L"{}",
+                     fmt::format(
+                             L"{} {}",
+                             fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHTWARDS_HEAVY_ARROW, file_index, file_total), fmt::fg(fmt::color::cyan)),
+                             fmt::styled(fmt::format(L"Converting {}...", file_path.filename().wstring()),fmt::fg(fmt::color::white))
+                     ));
 
-        auto start_time = std::chrono::steady_clock::now();
+        auto [duration_ms, status] = x360mse::util::run_measuring_ms<je2be::Status>([&]() {
+            return je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
+        });
 
-        auto st = je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
-
-        auto end_time = std::chrono::steady_clock::now();
-        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-        if (auto err = st.error(); err) {
+        if (auto err = status.error(); err) {
             std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
             std::wstring wide_what = converter.from_bytes(err->fWhat);
 
@@ -95,66 +102,121 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
     }
 }
 
-void extract_file_or_folder(const std::filesystem::path& file_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& save_file_pattern, size_t index, size_t total) {
-    using namespace bit7z;
+void extract_from_archive(const bit7z::BitFileExtractor &extractor, const std::filesystem::path &archive_path, const std::filesystem::path &output_directory, const bit7z::BitArchiveItemInfo &info) {
+    const auto output_path = unique_path(output_directory, info.name());
 
-    std::wcout << tc::cyan << uc::RIGHTWARDS_HEAVY_ARROW << L" [" << index << L" / " << total << L"] Processing " << file_path.filename() << L"..." << tc::reset << std::endl;
+    auto output_stream = std::ofstream { output_path, std::ios::binary };
+    extractor.extract(archive_path, output_stream, info.index());
+}
 
-    auto was_archive = false;
+void extract_all_from_archive(const std::filesystem::path& archive_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& save_file_pattern, size_t file_index, size_t file_total) {
+    fmt::println(L"{}",
+               fmt::format(
+                       L"{} {}",
+                       fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHTWARDS_HEAVY_ARROW, file_index + 1, file_total),fmt::fg(fmt::color::cyan)),
+                       fmt::styled(fmt::format(L"Processing {}...", archive_path.filename().wstring()),fmt::fg(fmt::color::white))
+               ));
 
-    if (!std::filesystem::is_directory(file_path) && file_path.extension() != ".bin") {
-        try {
-            BitFileExtractor extractor{lib7z};
-            BitArchiveReader archive_reader{lib7z, file_path.wstring()};
+    try {
+        const auto extractor = bit7z::BitFileExtractor {  lib7z };
+        const auto reader = bit7z::BitArchiveReader {lib7z, archive_path.wstring() };
 
-            was_archive = true;
+        std::vector<bit7z::BitArchiveItemInfo> filtered_infos;
 
-            const auto items = archive_reader.items();
+        size_t filtered_info_total = 0;
 
-            std::vector<int> item_indices;
+        for (const auto& info : reader.items()) {
+            if (std::regex_match(info.name(), save_file_pattern)) {
+                filtered_infos.push_back(info);
+                filtered_info_total += 1;
+            }
+        }
 
-            for (auto i = 0; i < items.size(); ++i) {
-                const auto& item = items.at(i);
-                if (std::regex_match(item.name(), save_file_pattern)) {
-                    item_indices.push_back(i);
+        size_t filtered_info_index = 0;
+
+        for (const auto& info : filtered_infos) {
+            const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
+                extract_from_archive(extractor, archive_path, output_directory, info);
+            });
+
+            fmt::println(L"{}",
+                       fmt::format(
+                               L"{} {} {}",
+                               fmt::styled(fmt::format(L"{} [{} / {}]", uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW, filtered_info_index + 1, filtered_info_total), fmt::fg(fmt::color::green_yellow)),
+                               fmt::styled(fmt::format(L"Extracted {} to {}!", info.name(), output_directory.wstring()), fmt::fg(fmt::color::white)),
+                               fmt::styled(fmt::format(L"({}ms)", duration_ms), fmt::fg(fmt::color::green_yellow))
+                       ));
+
+            filtered_info_index += 1;
+        }
+    } catch (std::exception& ex) {
+
+    }
+}
+
+void copy_all_from_directory(const std::filesystem::path& directory_path, const std::filesystem::path& output_directory, const std::wregex& save_file_pattern, size_t directory_index, size_t directory_total) {
+    fmt::println(L"{}",
+               fmt::format(
+                       L"{} {}",
+                       fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHTWARDS_HEAVY_ARROW, directory_index + 1, directory_total), fmt::fg(fmt::color::cyan)),
+                       fmt::styled(fmt::format(L"Processing {}...", directory_path.filename().wstring()),fmt::fg(fmt::color::white))
+               ));
+
+    try {
+        std::vector<std::filesystem::path> filtered_paths;
+
+        size_t filtered_path_total = 0;
+
+        for (const auto &entry: std::filesystem::directory_iterator(directory_path)) {
+            if (std::filesystem::is_regular_file(entry)) {
+                if (std::regex_match(entry.path().filename().wstring(), save_file_pattern)) {
+                    filtered_paths.push_back(entry.path());
+                    filtered_path_total += 1;
                 }
             }
-
-            size_t counter = 0;
-
-            for (const auto item_index : item_indices) {
-                const auto& item = items.at(item_index);
-
-                auto start_time = std::chrono::steady_clock::now();
-
-                std::filesystem::path output_path = unique_path(output_directory, item.name());
-                std::ofstream output_stream(output_path, std::ios::binary);
-                extractor.extract(file_path.wstring(), output_stream, item.index());
-
-                auto end_time = std::chrono::steady_clock::now();
-                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-                std::wcout << tc::white << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << L" [" << counter + 1 << L" / " << item_indices.size() + 1 << L"]" << L" Extracted " << item.name() << L" to " << output_path << L"! (" << duration_ms << "ms)" << tc::reset << std::endl;
-                counter += 1;
-            }
-        } catch (const std::exception& e) {
-            std::wcout << tc::red << L"[Error] An exception has occurred while processing " << file_path << L":" << tc::reset << std::endl;
-            std::wcout << tc::red << e.what() << std::endl << std::endl;
         }
+
+        size_t filtered_path_index = 0;
+
+        for (const auto& path : filtered_paths) {
+            const auto output_path = unique_path(output_directory, path.filename());
+
+            const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
+                std::filesystem::copy(path, output_path);
+            });
+
+            fmt::println(L"{}",
+                       fmt::format(
+                               L"{} {} {}",
+                               fmt::styled(fmt::format(L"{} [{} / {}]", uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW, filtered_path_index + 1, filtered_path_total), fmt::fg(fmt::color::green_yellow)),
+                               fmt::styled(fmt::format(L"Copied {} to {}!", path.filename().wstring(), output_directory.wstring()), fmt::fg(fmt::color::white)),
+                               fmt::styled(fmt::format(L"({}ms)", duration_ms), fmt::fg(fmt::color::green_yellow))
+                       ));
+
+            filtered_path_index += 1;
+        }
+    } catch (std::exception& ex) {
+
     }
+}
 
-    if (!was_archive) {
-        if (std::regex_match(file_path.filename().wstring(), save_file_pattern)) {
-            auto start_time = std::chrono::steady_clock::now();
+void copy_file_(const std::filesystem::path& file_path, const std::filesystem::path& output_directory) {
+    try {
+        const auto output_path = unique_path(output_directory, file_path.filename());
 
-            std::filesystem::path output_path = unique_path(output_directory, file_path.filename());
+        const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
             std::filesystem::copy(file_path, output_path);
+        });
 
-            auto end_time = std::chrono::steady_clock::now();
-            auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        fmt::println(L"{}",
+                   fmt::format(
+                           L"{} {} {}",
+                           fmt::styled(fmt::format(L"{} [{} / {}]", uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW, 1, 1), fmt::fg(fmt::color::green_yellow)),
+                           fmt::styled(fmt::format(L"Copied {} to {}!", file_path.filename().wstring(), output_directory.wstring()), fmt::fg(fmt::color::white)),
+                           fmt::styled(fmt::format(L"({}ms)", duration_ms), fmt::fg(fmt::color::green_yellow))
+                   ));
+    } catch (std::exception& ex) {
 
-            std::wcout << tc::white << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << L" [" << index << L" / " << total << L"]" << L" Copied " << file_path.filename() << L" to " << output_path << L"! (" << duration_ms << "ms)" << tc::reset << std::endl;
-        }
     }
 }
 
@@ -181,17 +243,35 @@ int main(int argc, char* argv[]) {
         return EXIT_SUCCESS;
     }
 
-    std::wcout << std::endl;
-    std::wcout << tc::bright_magenta << uc::RIGHTWARDS_HEAVY_ARROW << " Welcome to X360MSE (Xbox 360 Minecraft Save Extractor)!" << tc::reset << std::endl;
+    fmt::print(L"\n");
+    fmt::println(L"{}", fmt::styled(fmt::format(L"{} {}", uc::RIGHTWARDS_HEAVY_ARROW, L"Welcome to Xbox 360 Minecraft Save Extractor! (X360MSE)"), fmt::fg(fmt::color::white)));
+    fmt::print(L"\n");
 
     std::filesystem::path input_path = result["input"].as<std::string>();
     std::filesystem::path output_directory = result["output"].as<std::string>();
 
-    std::wcout << std::endl;
-    std::wcout << tc::cyan << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << " Extracting save file(s) from: " << input_path << tc::reset << std::endl;
-    std::wcout << tc::cyan << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW << " To: " << output_directory << tc::reset << std::endl;
+    fmt::println(L"{}",
+               fmt::format(
+                       L"{} {}: {}",
+                       fmt::styled(uc::RIGHTWARDS_HEAVY_ARROW, fmt::fg(fmt::color::green_yellow)),
+                       fmt::styled(L"Extracting save file(s) from", fmt::fg(fmt::color::white)),
+                       fmt::styled( input_path.wstring(), fmt::fg(fmt::color::green_yellow))
+               )
+    );
 
-    std::wregex save_file_regex{LR"(Save(.+)\.bin)"};
+    fmt::println(L"{}",
+               fmt::format(
+                       L"{} {}: {}",
+                       fmt::styled(uc::RIGHTWARDS_HEAVY_ARROW, fmt::fg(fmt::color::green_yellow)),
+                       fmt::styled(L"Into", fmt::fg(fmt::color::white)),
+                       fmt::styled( output_directory.wstring(), fmt::fg(fmt::color::green_yellow))
+               )
+    );
+
+    fmt::print(L"\n");
+
+    const auto save_file_pattern = std::wregex {LR"(Save(.+)\.bin)"};
+    const auto compression_file_pattern = std::wregex { LR"(.+(7z|ar|arj|bzip2|cab|chm|cpio|cramfs|deb|dmg|ext|fat|gpt|gzip|hfs|hxs|ihex|iso|lzh|lzma|mbr|msi|nsis|ntfs|qcow2|rar|rar5|rpm|squashfs|tar|udf|uefi|vdi|vhd|vmdk|wim|xar|xz|z|zip))" };
 
     try {
         bit7z::Bit7zLibrary lib7z{L"7z.dll"};
@@ -200,33 +280,16 @@ int main(int argc, char* argv[]) {
             std::filesystem::create_directories(output_directory);
         }
 
-        std::vector<std::filesystem::path> files_to_process;
-
         if (std::filesystem::is_directory(input_path)) {
-            for (const auto& entry : std::filesystem::directory_iterator(input_path)) {
-                if (std::filesystem::is_regular_file(entry)) {
-                    files_to_process.push_back(entry.path());
-                }
-            }
-        } else if (std::filesystem::is_regular_file(input_path)) {
-            files_to_process.push_back(input_path);
+            copy_all_from_directory(input_path, output_directory, save_file_pattern, 0, 1);
+        } else if (std::filesystem::is_regular_file(input_path) && std::regex_match(input_path.filename().wstring(), save_file_pattern)) {
+            copy_file_(input_path, output_directory);
+        } else if (std::filesystem::is_regular_file(input_path) && std::regex_match(input_path.filename().wstring(), compression_file_pattern)) {
+            extract_all_from_archive(input_path, output_directory, lib7z, save_file_pattern, 0, 1);
         } else {
             std::wcout << tc::red << "[Error] Input path is not a file or directory!" << tc::reset << std::endl;
 
             return EXIT_FAILURE;
-        }
-
-        std::wcout << std::endl;
-        std::wcout << tc::bright_magenta << uc::RIGHTWARDS_HEAVY_ARROW << L" Processing " << files_to_process.size() << L" file(s)..." << tc::reset << std::endl;
-        std::wcout << std::endl;
-
-        size_t total = files_to_process.size();
-        size_t index = 0;
-
-        for (const auto& file_path : files_to_process) {
-            index += 1;
-
-            extract_file_or_folder(file_path, output_directory, lib7z, save_file_regex, index, total);
         }
 
         std::vector<std::filesystem::path> save_file_paths;

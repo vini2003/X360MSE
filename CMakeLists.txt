@@ -34,6 +34,7 @@ add_subdirectory("bit7z")
 add_executable(${PROJECT_NAME}
         src/main.cpp
         src/unicode.hpp
+        src/util.h
 )
 
 # Link the output of je2be-ore.
@@ -52,6 +53,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${TERMCOLOR_INCLUDE_DIRS})
 
 # Include pbar.
 target_include_directories(${PROJECT_NAME} PRIVATE ${pbar_SOURCE_DIR})
+
+# Include fmt.
+find_package(fmt CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
 
 # Copy '7z.dll' into the output directory.
 # You must supply '7z.dll' into 'dll/' yourself.

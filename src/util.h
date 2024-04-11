@@ -6,6 +6,7 @@
 #define X360MSE_UTIL_H
 
 #include <chrono>
+#include <string>
 
 namespace x360mse::util {
     template<typename T>
@@ -21,6 +22,11 @@ namespace x360mse::util {
         function();
         const auto now = std::chrono::steady_clock::now();
         return std::chrono::duration_cast<std::chrono::milliseconds>(now - then).count();
+    }
+
+    std::wstring to_wstring(std::string data) {
+        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+        return converter.from_bytes(data);
     }
 }
 

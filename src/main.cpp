@@ -70,35 +70,45 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
             }
         };
 
+        fmt::print(L"\n");
+
         fmt::println(L"{}",
                      fmt::format(
                              L"{} {}",
-                             fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHTWARDS_HEAVY_ARROW, file_index, file_total), fmt::fg(fmt::color::cyan)),
+                             fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHTWARDS_HEAVY_ARROW, file_index + 1, file_total), fmt::fg(fmt::color::cyan)),
                              fmt::styled(fmt::format(L"Converting {}...", file_path.filename().wstring()),fmt::fg(fmt::color::white))
                      ));
+
+        fmt::print(L"\n");
 
         auto [duration_ms, status] = x360mse::util::run_measuring_ms<je2be::Status>([&]() {
             return je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
         });
 
         if (auto err = status.error(); err) {
-            std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-            std::wstring wide_what = converter.from_bytes(err->fWhat);
-
-            std::wcout << tc::red << L"[Error] Conversion failed: " << wide_what << tc::reset << std::endl;
-            for (int i = err->fTrace.size() - 1; i >= 0; i--) {
-                std::wstring wide_file = converter.from_bytes(err->fTrace[i].fFile);
-                std::wstring wide_line = converter.from_bytes(err->fTrace[i].fLine);
-
-                std::wcout << tc::reset << L"  " << wide_file << L":" << wide_line << tc::reset << std::endl;
-            }
+            fmt::println(L"{}",
+                         fmt::format(
+                                 L"{} {} {}",
+                                 fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW, file_index + 1, file_total), fmt::fg(fmt::color::red)),
+                                 fmt::styled(fmt::format(L"Failed to convert {}!", file_path.filename().wstring()),fmt::fg(fmt::color::white)),
+                                 fmt::styled(fmt::format(L"({}ms)", duration_ms), fmt::fg(fmt::color::red))
+                         ));
         } else {
-            std::wcout << tc::green << uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW
-                       << L" [Success] Conversion completed successfully! (" << duration_ms << "ms)" << tc::reset
-                       << std::endl;
+            fmt::println(L"{}",
+                         fmt::format(
+                                 L"{} {} {}",
+                                 fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW, file_index + 1, file_total), fmt::fg(fmt::color::green_yellow)),
+                                 fmt::styled(fmt::format(L"Converted {}!", file_path.filename().wstring()),fmt::fg(fmt::color::white)),
+                                    fmt::styled(fmt::format(L"({}ms)", duration_ms), fmt::fg(fmt::color::green_yellow))
+                         ));
         }
-    } catch (const std::exception& e) {
-        std::wcout << tc::red << L"[Error] An exception has occurred while converting item: " << e.what() << tc::reset << std::endl;
+    } catch (const std::exception& ex) {
+        fmt::println(
+                L"{}",
+                fmt::styled(
+                        std::format(L"{} {}:\n{}", uc::X, L"[Error] An exception has occurred!", x360mse::util::to_wstring(std::string(ex.what()))),
+                        fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                ));
     }
 }
 
@@ -126,7 +136,7 @@ void print_extraction_progress(uint64_t current_size) {
     percentage = std::clamp(percentage, 0.0, 100.0);
 
     if (prev_text_size != 0) {
-        std::wcout << std::wstring(prev_text_size, '\b'); // Adjust width based on your output length
+        fmt::print(L"{}", std::wstring(prev_text_size, '\b'));
     }
 
     auto text = fmt::format(
@@ -165,6 +175,7 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
                ));
 
     fmt::print(L"\n");
+    fmt::print(L"\033[?25l");
 
     try {
         auto extractor = bit7z::BitFileExtractor {  lib7z };
@@ -188,7 +199,7 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
                 extract_from_archive(extractor, archive_path, output_directory, info);
             });
 
-            std::wcout << std::wstring(prev_text_size, '\b'); // Adjust width based on your output length
+            std::wcout << std::wstring(prev_text_size, '\b');
 
             fmt::println(L"{}",
                        fmt::format(
@@ -203,6 +214,8 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
     } catch (std::exception& ex) {
 
     }
+
+    fmt::print(L"\033[?25h");
 }
 
 void copy_all_from_directory(const std::filesystem::path& directory_path, const std::filesystem::path& output_directory, const std::wregex& save_file_pattern, size_t directory_index, size_t directory_total) {
@@ -288,10 +301,7 @@ int main(int argc, char* argv[]) {
     auto result = options.parse(argc, argv);
 
     if (result.count("help") || !result.count("input") || !result.count("output")) {
-        std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-        std::wstring wide_help = converter.from_bytes(options.help());
-
-        std::wcout << wide_help << std::endl;
+        fmt::println(L"{}", x360mse::util::to_wstring(options.help()));
 
         return EXIT_SUCCESS;
     }
@@ -340,7 +350,12 @@ int main(int argc, char* argv[]) {
         } else if (std::filesystem::is_regular_file(input_path) && std::regex_match(input_path.filename().wstring(), compression_file_pattern)) {
             extract_all_from_archive(input_path, output_directory, lib7z, save_file_pattern, 0, 1);
         } else {
-            std::wcout << tc::red << "[Error] Input path is not a file or directory!" << tc::reset << std::endl;
+            fmt::println(
+                    L"{}",
+                    fmt::styled(
+                            std::format(L"{} {}", uc::X, L"[Error] Input path is not a file or directory!"),
+                            fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                    ));
 
             return EXIT_FAILURE;
         }
@@ -362,11 +377,15 @@ int main(int argc, char* argv[]) {
                 std::filesystem::create_directories(save_output_path);
             }
 
-            convert_file(save_path, save_output_path, count++ + 1, save_file_paths.size());
+            convert_file(save_path, save_output_path, count++, save_file_paths.size());
         }
-    } catch (const std::exception& e) {
-        std::wcout << tc::red << L"[Error] An exception has occurred:" << tc::reset << std::endl;
-        std::wcout << tc::red << e.what() << tc::reset << std::endl;
+    } catch (const std::exception& ex) {
+        fmt::println(
+                L"{}",
+                fmt::styled(
+                        std::format(L"{} {}:\n{}", uc::X, L"[Error] An exception has occurred!", x360mse::util::to_wstring(std::string(ex.what()))),
+                        fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                ));
 
         return EXIT_FAILURE;
     }

@@ -102,10 +102,57 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
     }
 }
 
-void extract_from_archive(const bit7z::BitFileExtractor &extractor, const std::filesystem::path &archive_path, const std::filesystem::path &output_directory, const bit7z::BitArchiveItemInfo &info) {
-    const auto output_path = unique_path(output_directory, info.name());
+static uint64_t total_size = 0; // Total size of the extraction
+static size_t prev_text_size = 0;
+static std::chrono::time_point<std::chrono::steady_clock> last_time = std::chrono::steady_clock::now();
 
+void set_total_size(uint64_t size) {
+    total_size = size;
+}
+
+void print_extraction_progress(uint64_t current_size) {
+    if (total_size == 0) return; // Avoid division by zero
+
+    const auto current_time = std::chrono::steady_clock::now();
+
+    // if less than 50ms passed, skip
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time).count() < 50) {
+        return;
+    } else {
+        last_time = current_time;
+    }
+
+    double percentage = static_cast<double>(current_size) / total_size * 100.0;
+    percentage = std::clamp(percentage, 0.0, 100.0);
+
+    if (prev_text_size != 0) {
+        std::wcout << std::wstring(prev_text_size, '\b'); // Adjust width based on your output length
+    }
+
+    auto text = fmt::format(
+            L"{} {} {}",
+            fmt::styled(uc::RIGHT_SHADED_WHITE_RIGHTWARDS_ARROW, fmt::fg(fmt::color::white)),
+            fmt::styled(fmt::format(L"[{:.2f}%]", percentage), fmt::fg(fmt::color::green_yellow)),
+            fmt::styled(L"Extracting...", fmt::fg(fmt::color::white))
+    );
+
+    prev_text_size = text.size();
+
+    fmt::print(L"{}", text);
+}
+
+void extract_from_archive(bit7z::BitFileExtractor &extractor, const std::filesystem::path &archive_path, const std::filesystem::path &output_directory, const bit7z::BitArchiveItemInfo &info) {
+    const auto output_path = unique_path(output_directory, info.name());
     auto output_stream = std::ofstream { output_path, std::ios::binary };
+
+    // Assuming there's a way to set a TotalCallback, not shown in provided callbacks
+    extractor.setTotalCallback(set_total_size); // This might need to be adapted based on actual API
+
+    extractor.setProgressCallback([&](uint64_t current_size) -> bool {
+        print_extraction_progress(current_size);
+        return true; // Return true to continue operation, false to cancel
+    });
+
     extractor.extract(archive_path, output_stream, info.index());
 }
 
@@ -117,8 +164,10 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
                        fmt::styled(fmt::format(L"Processing {}...", archive_path.filename().wstring()),fmt::fg(fmt::color::white))
                ));
 
+    fmt::print(L"\n");
+
     try {
-        const auto extractor = bit7z::BitFileExtractor {  lib7z };
+        auto extractor = bit7z::BitFileExtractor {  lib7z };
         const auto reader = bit7z::BitArchiveReader {lib7z, archive_path.wstring() };
 
         std::vector<bit7z::BitArchiveItemInfo> filtered_infos;
@@ -138,6 +187,8 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
             const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
                 extract_from_archive(extractor, archive_path, output_directory, info);
             });
+
+            std::wcout << std::wstring(prev_text_size, '\b'); // Adjust width based on your output length
 
             fmt::println(L"{}",
                        fmt::format(
@@ -161,6 +212,8 @@ void copy_all_from_directory(const std::filesystem::path& directory_path, const 
                        fmt::styled(fmt::format(L"{} [{} / {}] ", uc::RIGHTWARDS_HEAVY_ARROW, directory_index + 1, directory_total), fmt::fg(fmt::color::cyan)),
                        fmt::styled(fmt::format(L"Processing {}...", directory_path.filename().wstring()),fmt::fg(fmt::color::white))
                ));
+
+    fmt::print(L"\n");
 
     try {
         std::vector<std::filesystem::path> filtered_paths;

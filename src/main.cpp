@@ -49,11 +49,11 @@ namespace uc = unicode;
  * @param name the name of the file.
  * @return the unique path.
  */
-std::string unique_path(const std::filesystem::path& directory, const std::filesystem::path& name) {
+std::wstring unique_path(const std::filesystem::path& directory, const std::filesystem::path& name) {
     auto path = directory / name;
 
     if (!std::filesystem::exists(path)) {
-        return path.string();
+        return path.wstring();
     }
 
     int counter = 1;
@@ -69,7 +69,7 @@ std::string unique_path(const std::filesystem::path& directory, const std::files
         path = directory / std::filesystem::path(stem + " (" + std::to_string(counter) + ")" + extension);
     }
 
-    return path.string();
+    return path.wstring();
 }
 
 /**
@@ -220,6 +220,59 @@ void extract_from_archive(bit7z::BitFileExtractor &extractor, const std::filesys
 
     // Extract the item from the archive.
     extractor.extract(archive_path, output_stream, info.index());
+
+    try {
+#ifdef _WIN32
+        HANDLE file_handle = CreateFileW(output_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        if (file_handle == INVALID_HANDLE_VALUE) {
+            return;
+        }
+
+        FILETIME creation_time;
+        FILETIME last_access_time;
+        FILETIME last_write_time;
+
+        auto convert_to_filetime = [](const std::chrono::system_clock::time_point& tp) -> FILETIME {
+            // Convert time_point to cast_time to use Windows epoch.
+            auto cast_time = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count() / 100;  // Convert to 100-nanoseconds units
+
+            // Adjust for the difference between UNIX epoch and Windows epoch.
+            // Windows epoch starts 11644473600 seconds before UNIX epoch.
+            const auto WINDOWS_TICKS = 116444736000000000LL;
+            cast_time += WINDOWS_TICKS;
+
+            FILETIME file_time;
+            file_time.dwLowDateTime = static_cast<DWORD>(cast_time);
+            file_time.dwHighDateTime = static_cast<DWORD>(cast_time >> 32);
+
+            return file_time;
+        };
+
+        creation_time = convert_to_filetime(info.creationTime());
+        last_access_time = convert_to_filetime(info.lastAccessTime());
+        last_write_time = convert_to_filetime(info.lastWriteTime());
+
+        if (!SetFileTime(file_handle, &creation_time, &last_access_time, &last_write_time)) {
+            fmt::println(
+                    L"{}",
+                    fmt::styled(
+                            std::format(L"{} {}:\n{}", uc::X, L"[Error] Failed to set file times!", x360mse::util::to_wstring(std::to_string(GetLastError()))),
+                            fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                    ));
+        }
+
+        CloseHandle(file_handle);
+#endif
+    } catch (std::exception& ex) {
+        fmt::println(
+                L"{}",
+                fmt::styled(
+                        std::format(L"{} {}:\n{}", uc::X, L"[Error] An exception has occurred!", x360mse::util::to_wstring(std::string(ex.what()))),
+                        fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                ));
+    }
 }
 
 /**

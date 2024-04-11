@@ -47,10 +47,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE bit7z)
 find_package(cxxopts CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE cxxopts::cxxopts)
 
-# Include termcolor.
-find_path(TERMCOLOR_INCLUDE_DIRS "termcolor/termcolor.hpp")
-target_include_directories(${PROJECT_NAME} PRIVATE ${TERMCOLOR_INCLUDE_DIRS})
-
 # Include pbar.
 target_include_directories(${PROJECT_NAME} PRIVATE ${pbar_SOURCE_DIR})
 

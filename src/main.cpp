@@ -14,14 +14,11 @@
 
 #include <cxxopts.hpp>
 
-#include <termcolor/termcolor.hpp>
-
 // If on Windows, this must be included for '_setmode'.
 #ifdef _WIN32
 #include <fcntl.h>
 #endif
 
-#include <je2be.hpp>
 
 #include <defer.hpp>
 
@@ -31,14 +28,27 @@
 #include <fmt/xchar.h>
 #include <fmt/color.h>
 
-#include "util.h"
-#include "unicode.hpp"
+#include <je2be.hpp>
+
 #include "../je2be-core/example/lce-progress.hpp"
 
+#include "util.h"
+#include "unicode.hpp"
+
+
 // Shorten the namespaces for ease of use.
-namespace tc = termcolor;
 namespace uc = unicode;
 
+/**
+ * Generates a unique path in the specified directory with the specified name.
+ *
+ * If a file already exists with the same name, it will append a number to the name.
+ * Otherwise, it will return the path as is.
+ *
+ * @param directory the directory to generate the unique path in.
+ * @param name the name of the file.
+ * @return the unique path.
+ */
 std::string unique_path(const std::filesystem::path& directory, const std::filesystem::path& name) {
     auto path = directory / name;
 
@@ -53,17 +63,36 @@ std::string unique_path(const std::filesystem::path& directory, const std::files
 
     while (std::filesystem::exists(path)) {
         counter += 1;
+
+        // Append the counter to the stem of the path.
+        // Ex.: "file (1).bin", "file (2).bin", etc.
         path = directory / std::filesystem::path(stem + " (" + std::to_string(counter) + ")" + extension);
     }
 
     return path.string();
 }
 
+/**
+ * Converts the specified file from a Minecraft Xbox 360 Edition
+ * to a Minecraft Java Edition save file.
+ *
+ * The conversion outputs the save as an uncompressed folder.
+ *
+ * @param file_path the file to convert.
+ * @param output_path the directory to write to.
+ * @param file_index the index of the file in the total.
+ * @param file_total the total number of files to convert.
+ */
 void convert_file(const std::filesystem::path& file_path, const std::filesystem::path& output_path, const size_t file_index, const size_t file_total) {
     try {
         je2be::lce::Options convert_options;
+
+        // Create a temporary directory to store the converted save.
         convert_options.fTempDirectory = mcfile::File::CreateTempDir(std::filesystem::temp_directory_path());
 
+        // Delete the temporary directory after the conversion is complete.
+        // defer uses RAII to ensure the temporary directory is deleted
+        // when the function exits.
         defer {
             if (convert_options.fTempDirectory) {
                 je2be::Fs::DeleteAll(*convert_options.fTempDirectory);
@@ -81,6 +110,7 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
 
         fmt::print(L"\n");
 
+        // Run the conversion and measure the time it takes.
         auto [duration_ms, status] = x360mse::util::run_measuring_ms<je2be::Status>([&]() {
             return je2be::xbox360::Converter::Run(file_path, output_path, 8, convert_options, nullptr);
         });
@@ -112,31 +142,43 @@ void convert_file(const std::filesystem::path& file_path, const std::filesystem:
     }
 }
 
-static uint64_t total_size = 0; // Total size of the extraction
-static size_t prev_text_size = 0;
-static std::chrono::time_point<std::chrono::steady_clock> last_time = std::chrono::steady_clock::now();
+static uint64_t pep_extraction_size = 0; // Total size of the extraction.
+static size_t pep_prev_text_size = 0;
+static std::chrono::time_point<std::chrono::steady_clock> pep_last_time = std::chrono::steady_clock::now();
 
 void set_total_size(uint64_t size) {
-    total_size = size;
+    pep_extraction_size = size;
 }
 
+/**
+ * Prints the extraction progress of a bit7z::BitFileExtractor
+ * into stdout.
+ *
+ * Must call {#set_total_size} beforehand to set the total
+ * extraction size.
+ *
+ * @param current_size the current extracted size.
+ */
 void print_extraction_progress(uint64_t current_size) {
-    if (total_size == 0) return; // Avoid division by zero
+    if (pep_extraction_size == 0) return; // Avoid division by zero.
 
     const auto current_time = std::chrono::steady_clock::now();
 
-    // if less than 50ms passed, skip
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time).count() < 50) {
+    // Only print if the delay is >50ms, as writing to stdout slows
+    // down the conversion.
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(current_time - pep_last_time).count() < 50) {
         return;
     } else {
-        last_time = current_time;
+        pep_last_time = current_time;
     }
 
-    double percentage = static_cast<double>(current_size) / total_size * 100.0;
+    // Calculate the percentage of the extraction.
+    double percentage = static_cast<double>(current_size) / pep_extraction_size * 100.0;
     percentage = std::clamp(percentage, 0.0, 100.0);
 
-    if (prev_text_size != 0) {
-        fmt::print(L"{}", std::wstring(prev_text_size, '\b'));
+    if (pep_prev_text_size != 0) {
+        // Erase the previous text, based on the size of the previous text.
+        fmt::print(L"{}", std::wstring(pep_prev_text_size, '\b'));
     }
 
     auto text = fmt::format(
@@ -146,26 +188,50 @@ void print_extraction_progress(uint64_t current_size) {
             fmt::styled(L"Extracting...", fmt::fg(fmt::color::white))
     );
 
-    prev_text_size = text.size();
+    // Store the size of the text to erase it later.
+    pep_prev_text_size = text.size();
 
     fmt::print(L"{}", text);
 }
 
+/**
+ * Extracts the specified item from the archive.
+ *
+ * @param extractor the extractor to use.
+ * @param archive_path the path to the archive. Note that this is the path to the archive itself,
+ *                     <b>NOT</b> the path of the item inside the archive!
+ * @param output_directory the directory to extract the item to.
+ * @param info the information of the item to extract.
+ */
 void extract_from_archive(bit7z::BitFileExtractor &extractor, const std::filesystem::path &archive_path, const std::filesystem::path &output_directory, const bit7z::BitArchiveItemInfo &info) {
     const auto output_path = unique_path(output_directory, info.name());
     auto output_stream = std::ofstream { output_path, std::ios::binary };
 
-    // Assuming there's a way to set a TotalCallback, not shown in provided callbacks
-    extractor.setTotalCallback(set_total_size); // This might need to be adapted based on actual API
+    // Set the total callback function for the extraction.
+    // This function is called with the total size of the file after extraction.
+    extractor.setTotalCallback(set_total_size);
 
+    // Set the progress callback function for the extraction.
+    // This function is called with the current size of the file during extraction.
     extractor.setProgressCallback([&](uint64_t current_size) -> bool {
         print_extraction_progress(current_size);
-        return true; // Return true to continue operation, false to cancel
+        return true; // Continue the operation.
     });
 
+    // Extract the item from the archive.
     extractor.extract(archive_path, output_stream, info.index());
 }
 
+/**
+ * Extracts all items from the specified archive.
+ *
+ * @param archive_path the path to the archive.
+ * @param output_directory the directory to extract the items to.
+ * @param lib7z the bit7z instance.
+ * @param save_file_pattern the pattern to match save files.
+ * @param file_index the index of the file in the total.
+ * @param file_total the total number of files to extract.
+ */
 void extract_all_from_archive(const std::filesystem::path& archive_path, const std::filesystem::path& output_directory, const bit7z::Bit7zLibrary& lib7z, const std::wregex& save_file_pattern, size_t file_index, size_t file_total) {
     fmt::println(L"{}",
                fmt::format(
@@ -175,6 +241,8 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
                ));
 
     fmt::print(L"\n");
+
+    // Hide the cursor to avoid flickering.
     fmt::print(L"\033[?25l");
 
     try {
@@ -185,6 +253,7 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
 
         size_t filtered_info_total = 0;
 
+        // Find and store the items in the archive matching save files.
         for (const auto& info : reader.items()) {
             if (std::regex_match(info.name(), save_file_pattern)) {
                 filtered_infos.push_back(info);
@@ -195,11 +264,12 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
         size_t filtered_info_index = 0;
 
         for (const auto& info : filtered_infos) {
+            // Extract the item from the archive and measure the time it takes.
             const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
                 extract_from_archive(extractor, archive_path, output_directory, info);
             });
 
-            std::wcout << std::wstring(prev_text_size, '\b');
+            std::wcout << std::wstring(pep_prev_text_size, '\b');
 
             fmt::println(L"{}",
                        fmt::format(
@@ -212,12 +282,27 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
             filtered_info_index += 1;
         }
     } catch (std::exception& ex) {
-
+        fmt::println(
+                L"{}",
+                fmt::styled(
+                        std::format(L"{} {}:\n{}", uc::X, L"[Error] An exception has occurred!", x360mse::util::to_wstring(std::string(ex.what()))),
+                        fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                ));
     }
 
+    // Show the cursor again.
     fmt::print(L"\033[?25h");
 }
 
+/**
+ * Copies all save files from the specified directory to the output directory.
+ *
+ * @param directory_path the directory to copy files from.
+ * @param output_directory the directory to copy files to.
+ * @param save_file_pattern the pattern to match save files.
+ * @param directory_index the index of the directory in the total.
+ * @param directory_total the total number of directories to copy from.
+ */
 void copy_all_from_directory(const std::filesystem::path& directory_path, const std::filesystem::path& output_directory, const std::wregex& save_file_pattern, size_t directory_index, size_t directory_total) {
     fmt::println(L"{}",
                fmt::format(
@@ -233,6 +318,7 @@ void copy_all_from_directory(const std::filesystem::path& directory_path, const 
 
         size_t filtered_path_total = 0;
 
+        // Find and store all save files in the directory.
         for (const auto &entry: std::filesystem::directory_iterator(directory_path)) {
             if (std::filesystem::is_regular_file(entry)) {
                 if (std::regex_match(entry.path().filename().wstring(), save_file_pattern)) {
@@ -247,6 +333,7 @@ void copy_all_from_directory(const std::filesystem::path& directory_path, const 
         for (const auto& path : filtered_paths) {
             const auto output_path = unique_path(output_directory, path.filename());
 
+            // Copy the file to the output directory and measure the time it takes.
             const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
                 std::filesystem::copy(path, output_path);
             });
@@ -262,14 +349,26 @@ void copy_all_from_directory(const std::filesystem::path& directory_path, const 
             filtered_path_index += 1;
         }
     } catch (std::exception& ex) {
-
+        fmt::println(
+                L"{}",
+                fmt::styled(
+                        std::format(L"{} {}:\n{}", uc::X, L"[Error] An exception has occurred!", x360mse::util::to_wstring(std::string(ex.what()))),
+                        fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                ));
     }
 }
 
+/**
+ * Copies the specified file to the output directory.
+ *
+ * @param file_path the file to copy.
+ * @param output_directory the directory to copy the file to.
+ */
 void copy_file_(const std::filesystem::path& file_path, const std::filesystem::path& output_directory) {
     try {
         const auto output_path = unique_path(output_directory, file_path.filename());
 
+        // Copy the file to the output directory and measure the time it takes.
         const auto duration_ms = x360mse::util::run_measuring_ms([&]() {
             std::filesystem::copy(file_path, output_path);
         });
@@ -282,12 +381,17 @@ void copy_file_(const std::filesystem::path& file_path, const std::filesystem::p
                            fmt::styled(fmt::format(L"({}ms)", duration_ms), fmt::fg(fmt::color::green_yellow))
                    ));
     } catch (std::exception& ex) {
-
+        fmt::println(
+                L"{}",
+                fmt::styled(
+                        std::format(L"{} {}:\n{}", uc::X, L"[Error] An exception has occurred!", x360mse::util::to_wstring(std::string(ex.what()))),
+                        fmt::fg(fmt::color::red) | fmt::emphasis::bold
+                ));
     }
 }
 
 int main(int argc, char* argv[]) {
-    // If on Windows, this must be executed to allow the output stream of std::wcout to receive UTF-16 characters.
+    // If on Windows, this must be executed to allow the output stream of stdout to receive UTF-16 characters.
 #ifdef _WIN32
     _setmode(_fileno(stdout), _O_U16TEXT);
 #endif
@@ -340,14 +444,18 @@ int main(int argc, char* argv[]) {
         bit7z::Bit7zLibrary lib7z{L"7z.dll"};
 
         if (!std::filesystem::exists(output_directory)) {
+            // Create the output directory if it does not exist.
             std::filesystem::create_directories(output_directory);
         }
 
         if (std::filesystem::is_directory(input_path)) {
+            // If the input path is a directory, copy all save files from the directory to the output directory.
             copy_all_from_directory(input_path, output_directory, save_file_pattern, 0, 1);
         } else if (std::filesystem::is_regular_file(input_path) && std::regex_match(input_path.filename().wstring(), save_file_pattern)) {
+            // If the input path is a save file, copy the save file to the output directory.
             copy_file_(input_path, output_directory);
         } else if (std::filesystem::is_regular_file(input_path) && std::regex_match(input_path.filename().wstring(), compression_file_pattern)) {
+            // If the input path is a compressed archive, extract all save files from the archive to the output directory.
             extract_all_from_archive(input_path, output_directory, lib7z, save_file_pattern, 0, 1);
         } else {
             fmt::println(
@@ -362,6 +470,7 @@ int main(int argc, char* argv[]) {
 
         std::vector<std::filesystem::path> save_file_paths;
 
+        // Find and store all save files in the output directory.
         for (const auto& entry : std::filesystem::directory_iterator(output_directory)) {
             if (entry.path().extension() == ".bin") {
                 save_file_paths.push_back(entry.path());
@@ -374,9 +483,11 @@ int main(int argc, char* argv[]) {
             auto save_output_path = output_directory / save_path.stem();
 
             if (!std::filesystem::exists(save_output_path)) {
+                // Create the save's output directory if it does not exist.
                 std::filesystem::create_directories(save_output_path);
             }
 
+            // Convert the Minecraft Xbox 360 Edition save file to a Minecraft Java Edition save file.
             convert_file(save_path, save_output_path, count++, save_file_paths.size());
         }
     } catch (const std::exception& ex) {

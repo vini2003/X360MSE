@@ -10,4 +10,4 @@ namespace unicode {
     const std::wstring X = L"\U0000274C";
 }
 
-#endif // UNICODE_CHARS_H
+#endif

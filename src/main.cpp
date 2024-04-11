@@ -236,7 +236,7 @@ void extract_from_archive(bit7z::BitFileExtractor &extractor, const std::filesys
 
         auto convert_to_filetime = [](const std::chrono::system_clock::time_point& tp) -> FILETIME {
             // Convert time_point to cast_time to use Windows epoch.
-            auto cast_time = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count() / 100;  // Convert to 100-nanoseconds units
+            auto cast_time = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count() / 100;  // Convert to 100-nanoseconds units.
 
             // Adjust for the difference between UNIX epoch and Windows epoch.
             // Windows epoch starts 11644473600 seconds before UNIX epoch.
@@ -356,7 +356,15 @@ void extract_all_from_archive(const std::filesystem::path& archive_path, const s
  * @param directory_index the index of the directory in the total.
  * @param directory_total the total number of directories to copy from.
  */
-void copy_all_from_directory(const std::filesystem::path& directory_path, const std::filesystem::path& output_directory, const std::wregex& save_file_pattern, size_t directory_index, size_t directory_total) {
+void copy_all_from_directory(
+        const std::filesystem::path& directory_path,
+        const std::filesystem::path& output_directory,
+        const std::wregex& minecraft_save_info_pattern,
+        const std::wregex& save_file_pattern,
+        size_t directory_index,
+        size_t directory_total,
+        std::map<std::wstring, je2be::xbox360::MinecraftSaveInfo::SaveBin>& save_bins
+        ) {
     fmt::println(L"{}",
                fmt::format(
                        L"{} {}",
@@ -377,6 +385,19 @@ void copy_all_from_directory(const std::filesystem::path& directory_path, const 
                 if (std::regex_match(entry.path().filename().wstring(), save_file_pattern)) {
                     filtered_paths.push_back(entry.path());
                     filtered_path_total += 1;
+                }
+
+                if (std::regex_match(entry.path().filename().wstring(), minecraft_save_info_pattern)) {
+                    std::vector<je2be::xbox360::MinecraftSaveInfo::SaveBin> bins;
+
+                    je2be::xbox360::MinecraftSaveInfo::Parse(entry.path(), bins);
+
+                    for (const auto& bin : bins) {
+                        // TODO: Handle the MinecraftSaveInfo files.
+                        // Either copy them all with a unique path and then check the bin name, or do something else.
+                        // I don't know anymore.
+                        save_bins[x360mse::util::to_wstring(bin.fFileName)] = bin;
+                    }
                 }
             }
         }
@@ -490,6 +511,7 @@ int main(int argc, char* argv[]) {
 
     fmt::print(L"\n");
 
+    const auto minecraft_save_info_pattern = std::wregex { LR"(_MinecraftSaveInfo)" };
     const auto save_file_pattern = std::wregex {LR"(Save(.+)\.bin)"};
     const auto compression_file_pattern = std::wregex { LR"(.+(7z|ar|arj|bzip2|cab|chm|cpio|cramfs|deb|dmg|ext|fat|gpt|gzip|hfs|hxs|ihex|iso|lzh|lzma|mbr|msi|nsis|ntfs|qcow2|rar|rar5|rpm|squashfs|tar|udf|uefi|vdi|vhd|vmdk|wim|xar|xz|z|zip))" };
 
@@ -500,6 +522,8 @@ int main(int argc, char* argv[]) {
             // Create the output directory if it does not exist.
             std::filesystem::create_directories(output_directory);
         }
+
+        std::map<std::wstring, je2be::xbox360::MinecraftSaveInfo> save_infos;
 
         if (std::filesystem::is_directory(input_path)) {
             // If the input path is a directory, copy all save files from the directory to the output directory.

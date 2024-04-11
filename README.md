@@ -34,3 +34,4 @@ A huge thanks also goes to the [7-zip](https://www.7-zip.org/) project, whose `7
 The project should compile out of the box using CMake. However, there are issues with the provided project's `CMakeList.txt`s and with MSVC itself, which require minor tweaks to get this project to compile.
 
 1. Use a Release build, otherwise you need to change the copy script in `je2be-core/CMakeLists.txt` to copy `mimalloc-debug` rather than `mimalloc`.
+2. `//      return JE2BE_ERROR;`

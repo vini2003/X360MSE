@@ -34,7 +34,7 @@ namespace x360mse::util {
     }
 
     /**
-     * Convert a wide string to a string.
+     * Convert a string to a wide string.
      *
      * @param data the wide string to convert.
      * @return the converted string.
@@ -42,6 +42,20 @@ namespace x360mse::util {
     std::wstring to_wstring(const std::string& data) {
         std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
         return converter.from_bytes(data);
+    }
+
+    /**
+     * Convert a u16string to a wide string.
+     */
+    std::wstring to_wstring(const std::u16string& data) {
+        return { data.begin(), data.end() };
+    }
+
+    /**
+     * Convert a u16string to a string.
+     */
+    std::string to_string(const std::u16string& data) {
+        return {data.begin(), data.end()};
     }
 }
 

@@ -7,3 +7,6 @@
 [submodule "pbar"]
 	path = pbar
 	url = https://github.com/vini2003/pbar.git
+[submodule "libminecraft-file"]
+	path = libminecraft-file
+	url = https://github.com/kbinani/libminecraft-file

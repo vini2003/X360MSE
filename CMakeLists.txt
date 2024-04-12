@@ -54,6 +54,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${pbar_SOURCE_DIR})
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
 
+# Include 'libminecraft-file'.
+target_include_directories(${PROJECT_NAME} PRIVATE "libminecraft-file/include")
+
 # Copy '7z.dll' into the output directory.
 # You must supply '7z.dll' into 'dll/' yourself.
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

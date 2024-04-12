@@ -473,8 +473,6 @@ void extract_all_from_archive(
                 extract_from_archive(extractor, archive_path, output_directory, info, save_bins.contains(info.name()) ? std::make_optional<>(save_bins[info.name()]) : std::nullopt);
             });
 
-            // TODO: Modify the 'level.dat' of the extract folder to match the bin data.
-
             std::wcout << std::wstring(pep_prev_text_size, '\b');
 
             fmt::println(L"{}",
@@ -546,9 +544,6 @@ void copy_all_from_directory(
                     je2be::xbox360::MinecraftSaveInfo::Parse(entry.path(), bins);
 
                     for (const auto& bin : bins) {
-                        // TODO: Handle the MinecraftSaveInfo files.
-                        // Either copy them all with a unique path and then check the bin name, or do something else.
-                        // I don't know anymore.
                         save_bins[x360mse::util::to_wstring(bin.fFileName)] = bin;
                     }
                 }
